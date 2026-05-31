@@ -12,6 +12,7 @@ export const revalidate = 3600
 
 interface PageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ source?: string }>
 }
 
 interface StreamingServer {
@@ -19,13 +20,14 @@ interface StreamingServer {
   url?: string
 }
 
-export default async function WatchDonghuaPage({ params }: PageProps) {
+export default async function WatchDonghuaPage({ params, searchParams }: PageProps) {
   const { slug } = await params
-  
+  const { source } = await searchParams
+
   let episodeData = null
 
   try {
-    const response = await getDonghuaEpisode(slug)
+    const response = await getDonghuaEpisode(slug, source || undefined)
     // Donghua episode API returns data directly
     episodeData = response?.data || response
   } catch (error) {

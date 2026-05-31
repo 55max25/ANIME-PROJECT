@@ -12,6 +12,7 @@ export const revalidate = 3600
 
 interface PageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ source?: string }>
 }
 
 interface GenreItem {
@@ -27,15 +28,17 @@ interface EpisodeItem {
   date?: string
 }
 
-export default async function DonghuaDetailPage({ params }: PageProps) {
+export default async function DonghuaDetailPage({ params, searchParams }: PageProps) {
   const { slug } = await params
-  
+  const { source } = await searchParams
+
   let donghuaData = null
+  let apiSource = source || ''
 
   try {
-    const response = await getDonghuaDetail(slug)
-    // Donghua API returns data directly, not wrapped in data property
+    const response = await getDonghuaDetail(slug, source || undefined)
     donghuaData = response?.data || response
+    apiSource = response?.source || apiSource
   } catch (error) {
     console.error('[v0] Error fetching donghua detail:', error)
   }
@@ -54,16 +57,18 @@ export default async function DonghuaDetailPage({ params }: PageProps) {
 
   // Handle genres
   const rawGenres = donghuaData.genres || []
-  const genres = rawGenres.map((g: GenreItem | string) => 
+  const genres = rawGenres.map((g: GenreItem | string) =>
     typeof g === 'string' ? g : (g.name || g.title || '')
   ).filter(Boolean)
 
-  // Get studio info
   const studio = donghuaData.studio || ''
 
-  // Get first and last episode for navigation
-  const lastEpisode = episodes[0] // Latest episode
-  const firstEpisode = episodes[episodes.length - 1] // First episode
+  const lastEpisode = episodes[0]
+  const firstEpisode = episodes[episodes.length - 1]
+
+  // Teruskan source ke link episode
+  const watchLink = (epSlug: string) =>
+    apiSource ? `/watch/donghua/${epSlug}?source=${encodeURIComponent(apiSource)}` : `/watch/donghua/${epSlug}`
 
   return (
     <div className="relative min-h-screen">
@@ -98,7 +103,14 @@ export default async function DonghuaDetailPage({ params }: PageProps) {
           {/* Info Section */}
           <div className="flex-1">
             <h1 className="mb-4 text-2xl font-bold md:text-4xl">{donghuaData.title}</h1>
-            
+
+            {/* Source badge */}
+            {apiSource && (
+              <Badge variant="outline" className="mb-4 text-xs">
+                Sumber: {apiSource}
+              </Badge>
+            )}
+
             {/* Meta Info */}
             <div className="mb-6 flex flex-wrap gap-4">
               {donghuaData.rating && (
@@ -168,14 +180,14 @@ export default async function DonghuaDetailPage({ params }: PageProps) {
             {/* Watch Buttons */}
             {episodes.length > 0 && (
               <div className="flex flex-wrap gap-3">
-                <Link href={`/watch/donghua/${firstEpisode.slug}`}>
+                <Link href={watchLink(firstEpisode.slug)}>
                   <Button size="lg" className="gap-2">
                     <Play className="h-5 w-5" fill="currentColor" />
                     Tonton Episode 1
                   </Button>
                 </Link>
                 {lastEpisode.slug !== firstEpisode.slug && (
-                  <Link href={`/watch/donghua/${lastEpisode.slug}`}>
+                  <Link href={watchLink(lastEpisode.slug)}>
                     <Button size="lg" variant="outline" className="gap-2">
                       <Play className="h-5 w-5" />
                       Episode Terbaru
@@ -197,7 +209,7 @@ export default async function DonghuaDetailPage({ params }: PageProps) {
               {episodes.map((episode: { title: string; slug: string; date?: string }, index: number) => (
                 <Link
                   key={index}
-                  href={`/watch/donghua/${episode.slug}`}
+                  href={watchLink(episode.slug)}
                   className="group flex items-center gap-3 rounded-lg bg-card/50 p-4 transition-all hover:bg-card hover:shadow-lg"
                 >
                   <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-primary/20 transition-colors group-hover:bg-primary">

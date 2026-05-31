@@ -10,6 +10,7 @@ interface AnimeCardProps {
   episode?: string
   rating?: string
   type?: 'anime' | 'donghua'
+  source?: string
   className?: string
 }
 
@@ -20,9 +21,12 @@ export function AnimeCard({
   episode,
   rating,
   type = 'anime',
+  source,
   className,
 }: AnimeCardProps) {
-  const href = type === 'anime' ? `/anime/${slug}` : `/donghua/${slug}`
+  // Sertakan source sebagai query param agar halaman detail tahu dari API mana
+  const basePath = type === 'anime' ? `/anime/${slug}` : `/donghua/${slug}`
+  const href = source ? `${basePath}?source=${encodeURIComponent(source)}` : basePath
 
   return (
     <Link href={href} className={cn('group anime-card block', className)}>

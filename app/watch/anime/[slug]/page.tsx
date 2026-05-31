@@ -13,6 +13,7 @@ export const revalidate = 3600
 
 interface PageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ source?: string }>
 }
 
 interface ServerItem {
@@ -38,16 +39,17 @@ interface DownloadItem {
   urls?: { title: string; url: string }[]
 }
 
-export default async function WatchAnimePage({ params }: PageProps) {
+export default async function WatchAnimePage({ params, searchParams }: PageProps) {
   const { slug } = await params
-  
+  const { source } = await searchParams
+
   let episodeData = null
-  let apiSource = 'unknown'
+  let apiSource = source || 'unknown'
 
   try {
-    const response = await getEpisodeDetail(slug)
+    const response = await getEpisodeDetail(slug, source || undefined)
     episodeData = response?.data || response
-    apiSource = response?.source || 'unknown'
+    apiSource = response?.source || apiSource
   } catch (error) {
     console.error('[v0] Error fetching episode:', error)
   }

@@ -12,6 +12,7 @@ interface AnimeItem {
   poster: string
   episode?: string
   rating?: string
+  source?: string
 }
 
 interface AnimeGridPaginatedProps {
@@ -137,6 +138,7 @@ export function AnimeGridPaginated({
               poster={item.poster}
               episode={item.episode}
               rating={item.rating}
+              source={item.source}
               type={type}
             />
           ))}

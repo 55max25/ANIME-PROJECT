@@ -12,6 +12,7 @@ export const revalidate = 3600
 
 interface PageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ source?: string }>
 }
 
 interface GenreItem {
@@ -29,19 +30,23 @@ interface EpisodeItem {
   date?: string
 }
 
-export default async function AnimeDetailPage({ params }: PageProps) {
+export default async function AnimeDetailPage({ params, searchParams }: PageProps) {
   const { slug } = await params
-  
+  const { source } = await searchParams
+
   let animeData = null
+  let apiSource = source || ''
 
   try {
-    const response = await getAnimeDetail(slug)
-    animeData = response?.data
+    // Teruskan source hint agar API tahu endpoint mana yang dicoba duluan
+    const response = await getAnimeDetail(slug, source || undefined)
+    animeData = response?.data || response
+    apiSource = response?.source || apiSource
   } catch (error) {
     console.error('[v0] Error fetching anime detail:', error)
   }
 
-  if (!animeData) {
+  if (!animeData || !animeData.title) {
     notFound()
   }
 
@@ -56,11 +61,11 @@ export default async function AnimeDetailPage({ params }: PageProps) {
 
   // Handle different genre structures
   const rawGenres = animeData.genreList || animeData.genres || []
-  const genres = rawGenres.map((g: GenreItem | string) => 
+  const genres = rawGenres.map((g: GenreItem | string) =>
     typeof g === 'string' ? g : (g.title || g.name || '')
   ).filter(Boolean)
 
-  // Handle synopsis that might be an object with paragraphs
+  // Handle synopsis
   let synopsis = ''
   if (animeData.synopsis) {
     if (typeof animeData.synopsis === 'string') {
@@ -70,15 +75,16 @@ export default async function AnimeDetailPage({ params }: PageProps) {
     }
   }
 
-  // Get studio info
   const studio = animeData.studios || animeData.studio || ''
-
-  // Get rating/score
   const rating = animeData.score || animeData.rating || ''
 
-  // Get first and last episode for navigation
-  const lastEpisode = episodes[0] // Latest episode (at index 0)
-  const firstEpisode = episodes[episodes.length - 1] // First episode (at last index)
+  // Episode navigation
+  const lastEpisode = episodes[0]
+  const firstEpisode = episodes[episodes.length - 1]
+
+  // Teruskan source ke link episode agar watch page juga tahu sumbernya
+  const watchLink = (epSlug: string) =>
+    apiSource ? `/watch/anime/${epSlug}?source=${encodeURIComponent(apiSource)}` : `/watch/anime/${epSlug}`
 
   return (
     <div className="relative min-h-screen">
@@ -113,7 +119,14 @@ export default async function AnimeDetailPage({ params }: PageProps) {
           {/* Info Section */}
           <div className="flex-1">
             <h1 className="mb-4 text-2xl font-bold md:text-4xl">{animeData.title}</h1>
-            
+
+            {/* Source badge */}
+            {apiSource && (
+              <Badge variant="outline" className="mb-4 text-xs">
+                Sumber: {apiSource}
+              </Badge>
+            )}
+
             {/* Meta Info */}
             <div className="mb-6 flex flex-wrap gap-4">
               {rating && (
@@ -184,14 +197,14 @@ export default async function AnimeDetailPage({ params }: PageProps) {
             {/* Watch Buttons */}
             {episodes.length > 0 && (
               <div className="flex flex-wrap gap-3">
-                <Link href={`/watch/anime/${firstEpisode.slug}`}>
+                <Link href={watchLink(firstEpisode.slug)}>
                   <Button size="lg" className="gap-2">
                     <Play className="h-5 w-5" fill="currentColor" />
                     Tonton Episode 1
                   </Button>
                 </Link>
                 {lastEpisode.slug !== firstEpisode.slug && (
-                  <Link href={`/watch/anime/${lastEpisode.slug}`}>
+                  <Link href={watchLink(lastEpisode.slug)}>
                     <Button size="lg" variant="outline" className="gap-2">
                       <Play className="h-5 w-5" />
                       Episode Terbaru
@@ -213,7 +226,7 @@ export default async function AnimeDetailPage({ params }: PageProps) {
               {episodes.map((episode: { title: string; slug: string; episode?: number | string; date?: string }, index: number) => (
                 <Link
                   key={index}
-                  href={`/watch/anime/${episode.slug}`}
+                  href={watchLink(episode.slug)}
                   className="group flex items-center gap-3 rounded-lg bg-card/50 p-4 transition-all hover:bg-card hover:shadow-lg"
                 >
                   <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-primary/20 transition-colors group-hover:bg-primary">

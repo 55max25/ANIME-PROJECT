@@ -12,6 +12,7 @@ interface AnimeItem {
   poster: string
   episode?: string
   rating?: string
+  source?: string
 }
 
 interface AnimeGridProps {
@@ -104,7 +105,6 @@ export function AnimeGrid({ title, items, type = 'anime', showAll, horizontal, i
 
       {horizontal ? (
         <div className="relative">
-          {/* Left gradient fade */}
           {canScrollLeft && (
             <div className="pointer-events-none absolute left-0 top-0 z-10 h-full w-16 bg-gradient-to-r from-background to-transparent" />
           )}
@@ -121,13 +121,13 @@ export function AnimeGrid({ title, items, type = 'anime', showAll, horizontal, i
                   poster={item.poster}
                   episode={item.episode}
                   rating={item.rating}
+                  source={item.source}
                   type={type}
                 />
               </div>
             ))}
           </div>
 
-          {/* Right gradient fade */}
           {canScrollRight && (
             <div className="pointer-events-none absolute right-0 top-0 z-10 h-full w-16 bg-gradient-to-l from-background to-transparent" />
           )}
@@ -142,6 +142,7 @@ export function AnimeGrid({ title, items, type = 'anime', showAll, horizontal, i
               poster={item.poster}
               episode={item.episode}
               rating={item.rating}
+              source={item.source}
               type={type}
             />
           ))}

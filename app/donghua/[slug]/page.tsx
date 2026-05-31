@@ -37,8 +37,11 @@ export default async function DonghuaDetailPage({ params, searchParams }: PagePr
 
   try {
     const response = await getDonghuaDetail(slug, source || undefined)
-    donghuaData = response?.data || response
     apiSource = response?.source || apiSource
+    donghuaData = response?.data || response
+    if (!donghuaData?.title && response?.title) {
+      donghuaData = { ...donghuaData, title: response.title }
+    }
   } catch (error) {
     console.error('[v0] Error fetching donghua detail:', error)
   }

@@ -40,8 +40,13 @@ export default async function AnimeDetailPage({ params, searchParams }: PageProp
   try {
     // Teruskan source hint agar API tahu endpoint mana yang dicoba duluan
     const response = await getAnimeDetail(slug, source || undefined)
-    animeData = response?.data || response
+    // response.data is the normalized detail object, fallback to root if not present
     apiSource = response?.source || apiSource
+    animeData = response?.data || response
+    // Ensure title is present (might be at root level of response)
+    if (!animeData?.title && response?.title) {
+      animeData = { ...animeData, title: response.title }
+    }
   } catch (error) {
     console.error('[v0] Error fetching anime detail:', error)
   }

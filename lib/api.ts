@@ -366,12 +366,29 @@ export async function getDonghuaLatest(page = 1) {
 // ANIME DETAIL & EPISODE FUNCTIONS
 // ===========================================
 
+// Helper to extract anime detail data from various response shapes
+function extractAnimeDetailData(json: Record<string, unknown>): Record<string, unknown> | null {
+  if (!json) return null
+  // Try nested data field first
+  const nested = json.data as Record<string, unknown> | undefined
+  if (nested && (nested.title || nested.animeTitle)) return nested
+  // Try root level
+  if (json.title || json.animeTitle) return json
+  // Try detail field
+  const detail = json.detail as Record<string, unknown> | undefined
+  if (detail && (detail.title || detail.animeTitle)) return detail
+  return null
+}
+
 export async function getAnimeDetail(slug: string, source?: string) {
-  const sourceOrder = source ? [source] : [
-    'otakudesu', 'samehadaku', 'animasu', 'oploverz',
-    'alqanime', 'winbu', 'kuramanime', 'animesail',
-    'stream', 'animekuindo', 'nimegami', 'anoboy', 'kusonime'
-  ]
+  // If source is provided, try that source first, then fallback to all others
+  const sourceOrder = source
+    ? [source, 'otakudesu', 'samehadaku', 'animasu', 'oploverz',
+        'alqanime', 'winbu', 'kuramanime', 'animesail',
+        'stream', 'animekuindo', 'nimegami', 'anoboy', 'kusonime'].filter((v, i, a) => a.indexOf(v) === i)
+    : ['otakudesu', 'samehadaku', 'animasu', 'oploverz',
+        'alqanime', 'winbu', 'kuramanime', 'animesail',
+        'stream', 'animekuindo', 'nimegami', 'anoboy', 'kusonime']
 
   const sourceEndpoints: Record<string, string> = {
     otakudesu:   `${BASE_URL}/anime/${slug}`,
@@ -393,12 +410,56 @@ export async function getAnimeDetail(slug: string, source?: string) {
     const endpoint = sourceEndpoints[src]
     if (!endpoint) continue
     const json = await safeFetch(endpoint)
-    if (json && (json.title || json.data?.title)) {
-      return { ...json, source: src }
+    if (!json) continue
+    const data = extractAnimeDetailData(json)
+    if (data) {
+      // Normalize title field
+      if (!data.title && data.animeTitle) data.title = data.animeTitle
+      return { ...json, data, source: src }
+    }
+  }
+
+  // Last resort: try search by slug as keyword and return first match detail
+  const searchSlug = slug.replace(/-/g, ' ')
+  const searchResults = await searchAnimeByKeyword(searchSlug)
+  if (searchResults.length > 0) {
+    const best = searchResults[0]
+    // Try to fetch detail for the best match using its slug and source
+    const endpoint = sourceEndpoints[best.source]
+    if (endpoint) {
+      const json = await safeFetch(endpoint.replace(slug, best.slug))
+      if (json) {
+        const data = extractAnimeDetailData(json)
+        if (data) {
+          if (!data.title && data.animeTitle) data.title = data.animeTitle
+          return { ...json, data, source: best.source }
+        }
+      }
     }
   }
 
   throw new Error('Failed to fetch anime detail')
+}
+
+// Internal search helper for fallback
+async function searchAnimeByKeyword(keyword: string): Promise<AnimeItem[]> {
+  const encodedKeyword = encodeURIComponent(keyword)
+  const results = await Promise.allSettled([
+    safeFetch(`${BASE_URL}/search/${encodedKeyword}`).then(json =>
+      json ? normalizeAnimeList(json.data || json, 'otakudesu') : []
+    ),
+    safeFetch(`${BASE_URL}/samehadaku/search?q=${encodedKeyword}`).then(json =>
+      json ? normalizeAnimeList(json.data || json, 'samehadaku') : []
+    ),
+    safeFetch(`${BASE_URL}/animasu/search/${encodedKeyword}`).then(json =>
+      json ? normalizeAnimeList(json.data || json, 'animasu') : []
+    ),
+  ])
+  const all: AnimeItem[] = []
+  for (const r of results) {
+    if (r.status === 'fulfilled') all.push(...r.value)
+  }
+  return all
 }
 
 export async function getEpisodeDetail(slug: string, source?: string) {
@@ -475,23 +536,36 @@ export async function getKuramanimeWatch(id: string, slug: string, episode: numb
 // DONGHUA DETAIL & EPISODE FUNCTIONS
 // ===========================================
 
+// Helper to extract donghua detail data
+function extractDonghuaDetailData(json: Record<string, unknown>): Record<string, unknown> | null {
+  if (!json) return null
+  const nested = json.data as Record<string, unknown> | undefined
+  if (nested && (nested.title || nested.donghuaTitle)) return nested
+  if (json.title || json.donghuaTitle) return json
+  const detail = json.detail as Record<string, unknown> | undefined
+  if (detail && (detail.title || detail.donghuaTitle)) return detail
+  return null
+}
+
 export async function getDonghuaDetail(slug: string, source?: string) {
   const sourceEndpoints: Record<string, string> = {
     donghua: `${BASE_URL}/donghua/detail/${slug}`,
     donghub: `${BASE_URL}/donghub/detail/${slug}`,
   }
 
-  if (source && sourceEndpoints[source]) {
-    const json = await safeFetch(sourceEndpoints[source])
-    if (json && (json.title || json.data?.title)) {
-      return { ...json, source }
-    }
-  }
+  const sourceOrder = source && sourceEndpoints[source]
+    ? [source, ...Object.keys(sourceEndpoints).filter(s => s !== source)]
+    : Object.keys(sourceEndpoints)
 
-  for (const [src, endpoint] of Object.entries(sourceEndpoints)) {
+  for (const src of sourceOrder) {
+    const endpoint = sourceEndpoints[src]
+    if (!endpoint) continue
     const json = await safeFetch(endpoint)
-    if (json && (json.title || json.data?.title)) {
-      return { ...json, source: src }
+    if (!json) continue
+    const data = extractDonghuaDetailData(json)
+    if (data) {
+      if (!data.title && data.donghuaTitle) data.title = data.donghuaTitle
+      return { ...json, data, source: src }
     }
   }
 

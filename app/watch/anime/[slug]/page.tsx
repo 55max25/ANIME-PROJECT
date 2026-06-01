@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { notFound } from 'next/navigation'
 
-export const revalidate = 3600
+export const revalidate = 0
 
 interface PageProps {
   params: Promise<{ slug: string }>
@@ -48,8 +48,9 @@ export default async function WatchAnimePage({ params, searchParams }: PageProps
 
   try {
     const response = await getEpisodeDetail(slug, source || undefined)
-    episodeData = response?.data || response
     apiSource = response?.source || apiSource
+    // response is already flattened by getEpisodeDetail
+    episodeData = response
   } catch (error) {
     console.error('[v0] Error fetching episode:', error)
   }
@@ -60,14 +61,14 @@ export default async function WatchAnimePage({ params, searchParams }: PageProps
 
   // Parse servers dari berbagai format API
   const servers: { name: string; serverId: string; quality: string; directUrl?: string }[] = []
-  
+
   // Format 1: Otakudesu style - { server: { qualities: [{title, serverList: [{title, serverId}]}] } }
-  const rawQualities = episodeData.server?.qualities || episodeData.servers || episodeData.streamingUrls || []
+  const serverObj = episodeData.server || episodeData.servers_data || {}
+  const rawQualities = serverObj?.qualities || episodeData.servers || episodeData.streamingUrls || []
   if (Array.isArray(rawQualities)) {
     rawQualities.forEach((quality: QualityGroup) => {
       const qualityTitle = quality.title || quality.quality || 'Auto'
       const serverList = quality.serverList || quality.servers || []
-      
       serverList.forEach((server: ServerItem) => {
         if (server.serverId || server.url) {
           servers.push({
@@ -81,7 +82,27 @@ export default async function WatchAnimePage({ params, searchParams }: PageProps
     })
   }
 
-  // Format 2: Samehadaku/Animasu style - { streaming: [{name, url}] }
+  // Format 1b: server.qualities as object with quality keys
+  if (servers.length === 0 && serverObj && typeof serverObj === 'object' && !Array.isArray(serverObj)) {
+    const qualityObj = serverObj as Record<string, unknown>
+    for (const [qKey, qVal] of Object.entries(qualityObj)) {
+      if (qKey === 'qualities') continue
+      if (Array.isArray(qVal)) {
+        (qVal as ServerItem[]).forEach((server: ServerItem) => {
+          if (server.serverId || server.url) {
+            servers.push({
+              name: server.title || server.name || server.server_name || qKey,
+              serverId: server.serverId || `q-${servers.length}`,
+              quality: qKey,
+              directUrl: server.url,
+            })
+          }
+        })
+      }
+    }
+  }
+
+  // Format 2: Samehadaku/streaming array style
   const streamingServers = episodeData.streaming || episodeData.stream || []
   if (Array.isArray(streamingServers)) {
     streamingServers.forEach((server: ServerItem, index: number) => {
@@ -96,24 +117,59 @@ export default async function WatchAnimePage({ params, searchParams }: PageProps
     })
   }
 
-  // Format 3: Direct embed URL
-  if (servers.length === 0 && episodeData.defaultStreamingUrl) {
-    servers.push({
-      name: 'Default',
-      serverId: 'default',
-      quality: 'Auto',
-      directUrl: episodeData.defaultStreamingUrl,
+  // Format 2b: streaming as object with name/url or servers[]
+  if (servers.length === 0 && episodeData.streaming && typeof episodeData.streaming === 'object' && !Array.isArray(episodeData.streaming)) {
+    const sObj = episodeData.streaming as Record<string, unknown>
+    if (sObj.url) {
+      servers.push({ name: String(sObj.name || 'Default'), serverId: 'streaming-0', quality: 'Auto', directUrl: String(sObj.url) })
+    }
+    const sServers = sObj.servers || sObj.serverList || []
+    if (Array.isArray(sServers)) {
+      (sServers as ServerItem[]).forEach((s: ServerItem, i: number) => {
+        if (s.url) servers.push({ name: s.name || `Server ${i + 1}`, serverId: `ss-${i}`, quality: 'Auto', directUrl: s.url })
+      })
+    }
+    const mainUrl = sObj.main_url as Record<string, unknown> | undefined
+    if (mainUrl?.url) {
+      servers.unshift({ name: String(mainUrl.name || 'Main'), serverId: 'main-0', quality: 'Auto', directUrl: String(mainUrl.url) })
+    }
+  }
+
+  // Format 3: Animasu style — iframes: [{label, src}]
+  // This is THE primary format for animasu responses
+  const rawIframes = episodeData.iframes || episodeData.mirrors || episodeData.links || []
+  if (Array.isArray(rawIframes)) {
+    rawIframes.forEach((frame: { label?: string; src?: string; name?: string; url?: string; title?: string }, index: number) => {
+      const url = frame.src || frame.url
+      if (url) {
+        servers.push({
+          name: frame.label || frame.name || frame.title || `Server ${index + 1}`,
+          serverId: `iframe-${index}`,
+          quality: frame.label || 'Auto',
+          directUrl: url,
+        })
+      }
     })
   }
 
-  // Format 4: iframe/embed URL langsung
-  if (servers.length === 0 && (episodeData.iframe || episodeData.embed)) {
-    servers.push({
-      name: 'Default',
-      serverId: 'default',
-      quality: 'Auto',
-      directUrl: episodeData.iframe || episodeData.embed,
-    })
+  // Format 4: Direct embed URLs at root
+  if (episodeData.defaultStreamingUrl) {
+    const u = String(episodeData.defaultStreamingUrl)
+    if (!servers.find(s => s.directUrl === u)) servers.push({ name: 'Default', serverId: 'default', quality: 'Auto', directUrl: u })
+  }
+  if (episodeData.iframe || episodeData.embed) {
+    const iUrl = String(episodeData.iframe || episodeData.embed)
+    if (!servers.find(s => s.directUrl === iUrl)) {
+      servers.push({ name: 'Embed', serverId: 'embed-0', quality: 'Auto', directUrl: iUrl })
+    }
+  }
+
+  // Format 5: url/link fields at root
+  if (servers.length === 0 && episodeData.url) {
+    servers.push({ name: 'Video', serverId: 'url-0', quality: 'Auto', directUrl: String(episodeData.url) })
+  }
+  if (servers.length === 0 && episodeData.link) {
+    servers.push({ name: 'Video', serverId: 'link-0', quality: 'Auto', directUrl: String(episodeData.link) })
   }
 
   // Parse download links

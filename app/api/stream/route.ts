@@ -30,7 +30,15 @@ async function tryFetchStreamUrl(url: string): Promise<string | null> {
     clearTimeout(timeoutId)
     if (!response.ok) return null
     const data = await response.json()
-    return data?.data?.url || data?.url || data?.data?.embed || data?.embed || null
+    // Try all known URL field patterns across different API sources
+    const d = data?.data || data
+    return (
+      d?.url || d?.embed || d?.src || d?.link ||
+      d?.streamUrl || d?.stream_url || d?.videoUrl || d?.video_url ||
+      d?.iframe || d?.iframeUrl || d?.iframe_url ||
+      data?.url || data?.embed || data?.src || data?.link ||
+      null
+    )
   } catch {
     return null
   }

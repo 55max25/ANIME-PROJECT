@@ -23,12 +23,33 @@ export function VideoPlayer({ servers, title, defaultUrl, source }: VideoPlayerP
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Set default URL on mount
+  // Auto-select first server or use defaultUrl on mount
   useEffect(() => {
-    if (defaultUrl && !streamUrl) {
+    if (defaultUrl) {
       setStreamUrl(defaultUrl)
+      return
     }
-  }, [defaultUrl, streamUrl])
+    // If no defaultUrl but we have servers with directUrl, auto-load first one
+    if (!streamUrl && servers.length > 0) {
+      const firstWithUrl = servers.find(s => s.directUrl)
+      if (firstWithUrl) {
+        setSelectedServerId(firstWithUrl.serverId)
+        setStreamUrl(firstWithUrl.directUrl || null)
+      } else if (servers[0]) {
+        // No directUrl, must fetch from API
+        handleServerSelect(servers[0])
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Update when defaultUrl changes (e.g. navigation)
+  useEffect(() => {
+    if (defaultUrl) {
+      setStreamUrl(defaultUrl)
+      setError(null)
+    }
+  }, [defaultUrl])
 
   const handleServerSelect = async (server: ServerItem) => {
     setSelectedServerId(server.serverId)
@@ -52,6 +73,15 @@ export function VideoPlayer({ servers, title, defaultUrl, source }: VideoPlayerP
       if (data.url) {
         setStreamUrl(data.url)
       } else {
+        // Try next server automatically
+        const currentIdx = servers.findIndex(s => s.serverId === server.serverId)
+        const nextServer = servers[currentIdx + 1]
+        if (nextServer) {
+          setError(null)
+          setIsLoading(false)
+          handleServerSelect(nextServer)
+          return
+        }
         setError('Gagal memuat video. Coba server lain.')
       }
     } catch {

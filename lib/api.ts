@@ -462,7 +462,44 @@ async function searchAnimeByKeyword(keyword: string): Promise<AnimeItem[]> {
   return all
 }
 
+// Check if episode JSON has usable streaming/episode data
+function hasEpisodeData(json: Record<string, unknown> | unknown[]): boolean {
+  if (!json) return false
+  // Handle array response (e.g. animasu returns [{title, iframes:[...], ...}])
+  if (Array.isArray(json)) return json.length > 0
+  const j = json as Record<string, unknown>
+  const d = (j.data && typeof j.data === 'object' ? j.data : j) as Record<string, unknown>
+  return !!(
+    d.server || d.streaming || d.stream ||
+    d.defaultStreamingUrl || d.iframe || d.embed ||
+    d.iframes || d.mirrors || d.links ||
+    d.title || d.episode || d.episodeTitle || d.name
+  )
+}
+
+// Normalize episode data from array or object response into a consistent shape
+function normalizeEpisodeResponse(json: Record<string, unknown> | unknown[], src: string): Record<string, unknown> {
+  if (Array.isArray(json)) {
+    // e.g. animasu: [{title, name, slug, img, iframes:[{label,src}], episodes:[...]}]
+    const first = (json[0] || {}) as Record<string, unknown>
+    return { ...first, source: src, _rawArray: json }
+  }
+  const j = json as Record<string, unknown>
+  const nested = (j.data && typeof j.data === 'object') ? j.data as Record<string, unknown> : {}
+  return { ...nested, ...j, source: src }
+}
+
 export async function getEpisodeDetail(slug: string, source?: string) {
+  // Build source order — prioritize the known source
+  const allSources = [
+    'otakudesu', 'samehadaku', 'animasu', 'oploverz',
+    'alqanime', 'winbu', 'kuramanime', 'animesail',
+    'stream', 'animekuindo', 'nimegami', 'anoboy', 'kusonime'
+  ]
+  const sourceOrder = source
+    ? [source, ...allSources.filter(s => s !== source)]
+    : allSources
+
   const sourceEndpoints: Record<string, string> = {
     otakudesu:   `${BASE_URL}/episode/${slug}`,
     samehadaku:  `${BASE_URL}/samehadaku/episode/${slug}`,
@@ -479,16 +516,24 @@ export async function getEpisodeDetail(slug: string, source?: string) {
     kusonime:    `${BASE_URL}/kusonime/episode/${slug}`,
   }
 
-  if (source && sourceEndpoints[source]) {
-    const json = await safeFetch(sourceEndpoints[source])
-    if (json) return { ...json, source }
-  }
-
-  for (const [src, endpoint] of Object.entries(sourceEndpoints)) {
-    if (src === source) continue
-    const json = await safeFetch(endpoint)
-    if (json && (json.data || json.title || json.streaming || json.server)) {
-      return { ...json, source: src }
+  for (const src of sourceOrder) {
+    const endpoint = sourceEndpoints[src]
+    if (!endpoint) continue
+    // Use safeFetch but also handle array responses
+    let json: Record<string, unknown> | unknown[] | null = null
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
+      const res = await fetch(endpoint, { next: { revalidate: 0 }, signal: controller.signal })
+      clearTimeout(timeoutId)
+      if (!res.ok) continue
+      json = await res.json()
+    } catch {
+      continue
+    }
+    if (!json) continue
+    if (hasEpisodeData(json)) {
+      return normalizeEpisodeResponse(json as Record<string, unknown> | unknown[], src)
     }
   }
 
@@ -578,15 +623,20 @@ export async function getDonghuaEpisode(slug: string, source?: string) {
     donghub: `${BASE_URL}/donghub/episode/${slug}`,
   }
 
-  if (source && sourceEndpoints[source]) {
-    const json = await safeFetch(sourceEndpoints[source])
-    if (json) return { ...json, source }
-  }
+  const sourceOrder = source && sourceEndpoints[source]
+    ? [source, ...Object.keys(sourceEndpoints).filter(s => s !== source)]
+    : Object.keys(sourceEndpoints)
 
-  for (const [src, endpoint] of Object.entries(sourceEndpoints)) {
+  for (const src of sourceOrder) {
+    const endpoint = sourceEndpoints[src]
+    if (!endpoint) continue
     const json = await safeFetch(endpoint)
-    if (json && (json.data || json.streaming || json.title)) {
-      return { ...json, source: src }
+    if (!json) continue
+    // Donghua episode must have streaming data to be valid
+    const d = (json.data && typeof json.data === 'object' ? json.data : json) as Record<string, unknown>
+    if (d.streaming || d.stream || d.servers || d.episode || d.title) {
+      const nested = (json.data && typeof json.data === 'object') ? json.data as Record<string, unknown> : {}
+      return { ...nested, ...json, source: src }
     }
   }
 

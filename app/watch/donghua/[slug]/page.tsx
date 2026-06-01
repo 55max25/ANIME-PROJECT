@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { notFound } from 'next/navigation'
 
-export const revalidate = 3600
+export const revalidate = 0
 
 interface PageProps {
   params: Promise<{ slug: string }>
@@ -28,8 +28,8 @@ export default async function WatchDonghuaPage({ params, searchParams }: PagePro
 
   try {
     const response = await getDonghuaEpisode(slug, source || undefined)
-    // Donghua episode API returns data directly
-    episodeData = response?.data || response
+    // getDonghuaEpisode already flattens nested data
+    episodeData = response
   } catch (error) {
     console.error('[v0] Error fetching donghua episode:', error)
   }
@@ -38,20 +38,57 @@ export default async function WatchDonghuaPage({ params, searchParams }: PagePro
     notFound()
   }
 
-  // Parse servers from donghua API
-  // API returns: { streaming: { main_url: {name, url}, servers: [{name, url}] } }
-  const streaming = episodeData.streaming || {}
-  const rawServers = streaming.servers || []
-  
+  // Parse servers - handle multiple response shapes
+  const allServers: StreamingServer[] = []
+
+  // Shape 1: { streaming: { main_url: {name, url}, servers: [{name, url}] } }
+  const streamingObj = episodeData.streaming || {}
+  if (typeof streamingObj === 'object' && !Array.isArray(streamingObj)) {
+    const sObj = streamingObj as Record<string, unknown>
+    const mainUrl = sObj.main_url as StreamingServer | undefined
+    if (mainUrl?.url) allServers.push({ name: mainUrl.name || 'Main', url: mainUrl.url })
+    const sArr = (sObj.servers || sObj.serverList || []) as StreamingServer[]
+    sArr.forEach((s: StreamingServer) => { if (s.url) allServers.push(s) })
+  }
+
+  // Shape 2: streaming is an array
+  if (Array.isArray(episodeData.streaming)) {
+    (episodeData.streaming as StreamingServer[]).forEach((s: StreamingServer) => {
+      if (s.url) allServers.push(s)
+    })
+  }
+
+  // Shape 3: stream field
+  if (Array.isArray(episodeData.stream)) {
+    (episodeData.stream as StreamingServer[]).forEach((s: StreamingServer) => {
+      if (s.url) allServers.push(s)
+    })
+  }
+
+  // Shape 4: servers field at root
+  if (Array.isArray(episodeData.servers)) {
+    (episodeData.servers as StreamingServer[]).forEach((s: StreamingServer) => {
+      if (s.url) allServers.push(s)
+    })
+  }
+
+  // Shape 5: direct url fields
+  if (allServers.length === 0) {
+    const directUrl = episodeData.url || episodeData.embed || episodeData.iframe || episodeData.link
+    if (directUrl) allServers.push({ name: 'Video', url: String(directUrl) })
+  }
+
+  // Deduplicate by URL
+  const rawServers = allServers.filter((s, i, arr) => arr.findIndex(x => x.url === s.url) === i)
   const servers = rawServers.map((server: StreamingServer, index: number) => ({
     name: server.name || `Server ${index + 1}`,
-    serverId: `donghua-${index}`, // Use index as we have direct URLs
+    serverId: `donghua-${index}`,
     quality: 'Auto',
-    directUrl: server.url, // Store direct URL for donghua
+    directUrl: server.url,
   }))
 
   // Get default URL
-  const defaultUrl = streaming.main_url?.url || (rawServers[0] as StreamingServer)?.url || ''
+  const defaultUrl = rawServers[0]?.url || ''
 
   // Parse navigation
   const navigation = episodeData.navigation || {}
